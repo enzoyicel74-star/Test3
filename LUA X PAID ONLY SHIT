@@ -1,0 +1,317 @@
+-- fetched.lua (full loader, reformatted)
+
+local _rw, _rp = warn, print
+local warn = function(m, ...)
+    if type(m) == 'string' and m:sub(1, 9) == '[faulmor]' then return end
+    return _rw(m, ...)
+end
+local print = function(m, ...)
+    if type(m) == 'string' and m:sub(1, 9) == '[faulmor]' then return end
+    return _rp(m, ...)
+end
+
+local _G = (type(getgenv) == 'function' and getgenv()) or _G
+local hs = (game ~= nil and type(game.GetService) == 'function' and game:GetService("HttpService"))
+
+warn("[faulmor] DIAG 1: stage1 bootstrap started")
+
+-- Utility: sanitize strings
+local function _sanitize(s)
+    if type(s) ~= 'string' then return "" end
+    local clean = s:gsub("^%s*(.-)%s$", "%1")
+    clean = clean:gsub('^"', ''):gsub('"$', ''):gsub("^'", ''):gsub("'$", '')
+    clean = clean:gsub("[%s%z-]", "")
+    local lower = clean:lower()
+    if lower == "nil" or lower == "null" or lower == "undefined" or lower == "unknown" then
+        return ""
+    end
+    return clean
+end
+
+-- HTTP transport (tries multiple executors)
+local function _transport(url, method, body, headers)
+    local _req = _G.request or (type(syn) == 'table' and syn.request) or (type(http) == 'table' and http.request) or (type(fluxus) == 'table' and fluxus.request)
+    if _req then
+        warn("[faulmor] REQUEST " .. tostring(method) .. " stage2/transport")
+        local success, response = pcall(_req, {
+            Url = url,
+            Method = method,
+            Headers = headers or {["Content-Type"] = "application/json"},
+            Body = body
+        })
+        if success and response then
+            return response.Body, true, response.StatusCode or 0
+        end
+    end
+    if hs then
+        if method == "POST" then
+            local success, response = pcall(hs.PostAsync, hs, url, body, Enum.HttpContentType.ApplicationJson, false)
+            if success then return response, true, 200 end
+            return response, false, 500
+        else
+            local success, response = pcall(hs.GetAsync, hs, url, true)
+            if success then return response, true, 200 end
+            return response, false, 500
+        end
+    end
+    return nil, false, 0
+end
+
+-- Diagnostic ping to server
+local function _diag(msg, data)
+    pcall(function()
+        local body = hs:JSONEncode({
+            stage = "stage1",
+            msg = msg,
+            hash = "57e975a5c72bc6917160c5ef0e673728",
+            h_len = data and data.h_len or 0,
+            k_len = data and data.k_len or 0
+        })
+        _transport("https://faulmor.site/api/public/diag", "POST", body)
+    end)
+end
+
+-- Get HWID (RbxAnalyticsService ClientId)
+local function gethwid()
+    local h = "unknown"
+    if game ~= nil and type(game.GetService) == 'function' then
+        pcall(function()
+            local ra = game:GetService("RbxAnalyticsService")
+            if ra and type(ra.GetClientId) == 'function' then h = ra:GetClientId() end
+        end)
+    end
+    return h
+end
+
+-- XOR (fallback for bit32)
+local function _bxor(a, b)
+    if bit32 and bit32.bxor then return bit32.bxor(a, b) end
+    if bit and bit.bxor then return bit.bxor(a, b) end
+    local r, p = 0, 1
+    for _ = 1, 8 do
+        local x, y = a % 2, b % 2
+        if x ~= y then r = r + p end
+        a, b, p = (a - x) / 2, (b - y) / 2, p * 2
+    end
+    return r
+end
+
+-- Decrypt stage payload using key and drift
+local function decode_stage(data, key)
+    local out = {}
+    local kl = #key
+    if kl == 0 then return "" end
+    local kb = {}
+    for i = 1, kl do kb[i] = string.byte(key, i) end
+    for i = 1, #data do
+        local db_i = string.byte(data, i)
+        local ki = kb[((i - 1) % kl) + 1]
+        local drift = ((i * 131 + math.floor((i - 1) / kl)) % 256)
+        out[i] = string.char(_bxor(db_i, _bxor(ki, drift)))
+    end
+    return table.concat(out)
+end
+
+-- Base64 decode
+local function b64decode(d)
+    local b = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    local t = {}
+    for i = 1, #b do t[b:sub(i, i)] = i - 1 end
+    d = d:gsub('[^%a%d%+/=]', '')
+    local out, val, bits = {}, 0, 0
+    for i = 1, #d do
+        local c = d:sub(i, i)
+        if c == '=' then break end
+        local f = t[c]
+        if f then
+            if bit32 and bit32.lshift then
+                val = bit32.lshift(val, 6) + f
+                bits = bits + 6
+                if bits >= 8 then
+                    bits = bits - 8
+                    table.insert(out, string.char(bit32.rshift(val, bits)))
+                    val = bit32.band(val, bit32.lshift(1, bits) - 1)
+                end
+            else
+                val = val * 64 + f
+                bits = bits + 6
+                if bits >= 8 then
+                    bits = bits - 8
+                    local shift = 2 ^ bits
+                    table.insert(out, string.char(math.floor(val / shift) % 256))
+                    val = val % shift
+                end
+            end
+        end
+    end
+    return table.concat(out)
+end
+
+-- Find script key from environment or script attribute
+local function _resolve_key()
+    local names = {"faulmor_key","script_key","Key","scriptkey","loader_key","FAULMOR_KEY"}
+    local envs = {}
+    if type(getgenv) == 'function' then table.insert(envs, getgenv()) end
+    if type(getrenv) == 'function' then table.insert(envs, getrenv()) end
+    if type(getfenv) == 'function' then
+        pcall(function() table.insert(envs, getfenv(0)) end)
+        pcall(function() table.insert(envs, getfenv(1)) end)
+    end
+    table.insert(envs, _G)
+    for _, env in ipairs(envs) do
+        if type(env) == 'table' then
+            for _, name in ipairs(names) do
+                local v = rawget(env, name)
+                if type(v) == 'string' then
+                    local clean = _sanitize(v)
+                    if clean ~= '' then return clean end
+                end
+            end
+        end
+    end
+    if script and type(script) == 'userdata' then
+        pcall(function()
+            local attr = script:GetAttribute("faulmor_key") or script:GetAttribute("script_key")
+            if type(attr) == 'string' then
+                local clean = _sanitize(attr)
+                if clean ~= '' then return clean end
+            end
+        end)
+    end
+    return ""
+end
+
+-- Main flow
+local script_key = _resolve_key()
+local hwid = _sanitize(gethwid())
+_diag("resolved_state", {h_len = #hwid, k_len = #script_key})
+warn("[faulmor] DIAG 2: hwid len=" .. tostring(#hwid) .. " key len=" .. tostring(#script_key))
+
+-- Build stage2 URL with parameters
+local s2_params = "t=" .. hs:UrlEncode("1787665893") ..
+                  "&n=" .. hs:UrlEncode("bde297326979bbb2") ..
+                  "&g=" .. hs:UrlEncode("6776a4439b5ecb1761f6350558df45a9117442e9fe8a7b024e38f632e290348a") ..
+                  "&m=v2"
+if #script_key > 0 then
+    s2_params = s2_params .. "&script_key=" .. hs:UrlEncode(script_key)
+end
+local stage2_url = "https://faulmor.site/api/public/loaders/57e975a5c72bc6917160c5ef0e673728/stage2?" .. s2_params
+local body_json = hs:JSONEncode({h = hwid, p = script_key})
+
+warn("[faulmor] DIAG 3: posting stage2")
+_diag("stage2_request", {h_len = #hwid, k_len = #script_key})
+local resp, ok, code = _transport(stage2_url, "POST", body_json)
+if not ok or not resp then
+    _diag("stage2_transport_failed", {h_len = #hwid, k_len = #script_key})
+    warn("[faulmor] connection failed code=" .. tostring(code))
+    return
+end
+warn("[faulmor] DIAG 4: stage2 response len=" .. tostring(#tostring(resp)))
+_diag("stage2_response", {h_len = #hwid, k_len = #script_key})
+
+-- Parse JSON response
+local data_ok, data = pcall(function() return hs:JSONDecode(resp) end)
+if not data_ok then
+    _diag("stage2_json_failed", {h_len = #hwid, k_len = #script_key})
+    warn("[faulmor] DIAG 5: JSON decode failed")
+    return
+end
+if type(data) ~= "table" then
+    warn("[faulmor] DIAG 5: response not a table")
+    return
+end
+if data.e then
+    _diag("stage2_auth_error", {h_len = #hwid, k_len = #script_key})
+    warn("[faulmor] auth error: " .. tostring(data.e))
+    return
+end
+warn("[faulmor] DIAG 6: stage2 ok, has_u=" .. tostring(data.u ~= nil) .. " has_c=" .. tostring(data.c ~= nil))
+
+local src = ""
+
+-- Stage2 provides either a 'u' (stage3 URL) or a 'c' (combo cipher)
+if data.u and data.t and data.n and data.k then
+    warn("[faulmor] DIAG 7: normal stage3 path")
+    local stage3_body = hs:JSONEncode({n = data.n, t = data.t, h = hwid})
+    local resp3, ok3 = _transport(data.u, "POST", stage3_body)
+    if not ok3 or not resp3 or resp3 == "" then
+        warn("[faulmor] fetch failed")
+        return
+    end
+    warn("[faulmor] DIAG 8: stage3 response len=" .. tostring(#tostring(resp3)))
+    local ok_raw, raw = pcall(b64decode, resp3)
+    if not ok_raw then
+        warn("[faulmor] DIAG 9: b64decode failed")
+        return
+    end
+    local k3 = ""
+    for i = 1, #data.k, 2 do k3 = k3 .. string.char(tonumber(data.k:sub(i, i + 1), 16) or 0) end
+    local ok_dec, decoded = pcall(decode_stage, raw, k3)
+    if not ok_dec then
+        warn("[faulmor] DIAG 10: decode_stage failed")
+        return
+    end
+    src = decoded or ""
+
+elseif data.n and data.k and data.c then
+    warn("[faulmor] DIAG 7: combo path")
+    local ok_raw, raw = pcall(b64decode, data.c)
+    if not ok_raw then
+        warn("[faulmor] DIAG 9: b64decode failed")
+        return
+    end
+    warn("[faulmor] DIAG 8: combo cipher len=" .. tostring(#tostring(raw)))
+    local k3 = ""
+    for i = 1, #data.k, 2 do k3 = k3 .. string.char(tonumber(data.k:sub(i, i + 1), 16) or 0) end
+    local ok_dec, decoded = pcall(decode_stage, raw, k3)
+    if not ok_dec then
+        warn("[faulmor] DIAG 10: decode_stage failed")
+        return
+    end
+    src = decoded or ""
+else
+    warn("[faulmor] DIAG 7: unknown stage2 shape")
+    return
+end
+
+warn("[faulmor] DIAG 11: src len=" .. tostring(#src))
+if src == "" then
+    warn("[faulmor] empty payload after decode")
+    return
+end
+
+-- Execute the decoded payload
+local _l = (type(loadstring) == 'function' and loadstring) or (type(load) == 'function' and load)
+if not _l then
+    warn("[faulmor] environment lacks loadstring/load")
+    return
+end
+
+local fn, err = _l(src, "=faulmor")
+if not fn then
+    warn("[faulmor] load error: " .. tostring(err))
+    return
+end
+
+pcall(function()
+    if type(_G) == 'table' then
+        _G.FAULMOR_KEY = script_key
+        _G.script_key = script_key
+    end
+    if type(getgenv) == 'function' then
+        local ge = getgenv()
+        if type(ge) == 'table' then
+            ge.FAULMOR_KEY = script_key
+            ge.script_key = script_key
+        end
+    end
+end)
+warn("[faulmor] DIAG 12: loadstring ok, key injected (len=" .. tostring(#script_key) .. "), running")
+
+local ok_run, run_err = pcall(fn)
+if not ok_run then
+    _diag("payload_runtime_error", {h_len = #hwid, k_len = #script_key})
+    warn("[faulmor] runtime error: " .. tostring(run_err))
+end
+_diag("stage1_finished", {h_len = #hwid, k_len = #script_key})
+warn("[faulmor] DIAG 13: stage1 finished")
