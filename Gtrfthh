@@ -1,0 +1,395 @@
+-- =============================================================================
+-- FEATURE MENU • Obsidian UI • ABSOLUTE MAX EDITION
+-- Void Spam • Orbit • Translocate • Evade • Void Hide
+-- 🚨 ALL SCALES — MAXED TO ROBLOX LIMITS 🚨
+-- UI: Obsidian Library (deividcomsono/Obsidian)
+-- =============================================================================
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local LocalCharacter, RootPart, Humanoid = nil, nil, nil
+local Connections = {}
+
+-- =============================================================================
+-- OBSIDIAN UI LIBRARY
+-- =============================================================================
+local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local Library, ThemeManager, SaveManager, LoadErr
+
+local function LoadUI()
+    local success, result = pcall(function()
+        return loadstring(game:HttpGet(repo .. "Library.lua"))()
+    end)
+    if not success or not result then
+        return nil, nil, nil, "Failed to load Obsidian Library"
+    end
+    local lib = result
+    local tmSuccess, tmResult = pcall(function() return loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))() end)
+    local smSuccess, smResult = pcall(function() return loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))() end)
+    return lib, (tmSuccess and tmResult) or nil, (smSuccess and smResult) or nil, nil
+end
+
+Library, ThemeManager, SaveManager, LoadErr = LoadUI()
+
+if not Library then
+    warn("========================================")
+    warn("⚠️ OBSIDIAN UI FAILED TO LOAD")
+    warn("Reason: " .. tostring(LoadErr))
+    warn("Features still work via keybinds!")
+    warn("========================================")
+end
+
+-- =============================================================================
+-- HELPERS
+-- =============================================================================
+local function KillConn(key)
+    if Connections[key] then Connections[key]:Disconnect(); Connections[key] = nil end
+end
+
+local function BindCharacter(c)
+    LocalCharacter = c
+    RootPart = c:WaitForChild("HumanoidRootPart", 5)
+    Humanoid = c:WaitForChild("Humanoid", 5)
+end
+
+if LocalPlayer.Character then BindCharacter(LocalPlayer.Character) end
+LocalPlayer.CharacterAdded:Connect(BindCharacter)
+LocalPlayer.CharacterRemoving:Connect(function()
+    for k in pairs(Connections) do KillConn(k) end
+    LocalCharacter, RootPart, Humanoid = nil, nil, nil
+end)
+
+local function GetClosestPlayer()
+    if not RootPart then return nil end
+    local best, bestDist = nil, math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == LocalPlayer or not p.Character then continue end
+        local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local d = (RootPart.Position - hrp.Position).Magnitude
+            if d < bestDist then bestDist, best = d, p end
+        end
+    end
+    return best
+end
+
+-- =============================================================================
+-- 1. VOID SPAM — ABSOLUTE MAX: 1,000,000 studs/s
+-- =============================================================================
+local VoidConfig = {Enabled = false, Speed = 100000, Altitude = 1000000000000}
+
+local function StartVoid()
+    KillConn("void")
+    Connections.void = RunService.Heartbeat:Connect(function()
+        if not VoidConfig.Enabled or not RootPart then KillConn("void"); return end
+        local pos = RootPart.Position
+        RootPart.CFrame = CFrame.new(pos.X, VoidConfig.Altitude, pos.Z)
+        RootPart.AssemblyLinearVelocity = Vector3.new(
+            (math.random()-0.5) * VoidConfig.Speed,
+            (math.random()-0.5) * VoidConfig.Speed,
+            (math.random()-0.5) * VoidConfig.Speed
+        )
+    end)
+end
+local function StopVoid() KillConn("void") end
+
+-- =============================================================================
+-- 2. ORBIT — ABSOLUTE MAX: 10,800°/s • Radius 100,000 studs
+-- =============================================================================
+local OrbitConfig = {Enabled = false, Speed = 3600, Radius = 10000, Height = 0}
+local OrbitAngle = 0
+
+local function StartOrbit()
+    KillConn("orbit")
+    if Humanoid then Humanoid:ChangeState(Enum.HumanoidStateType.Physics) end
+    Connections.orbit = RunService.Heartbeat:Connect(function(dt)
+        if not OrbitConfig.Enabled or not RootPart then KillConn("orbit"); return end
+        local target = GetClosestPlayer()
+        if not target or not target.Character then return end
+        local hrp = target.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        OrbitAngle += math.rad(OrbitConfig.Speed) * dt
+        local x = math.cos(OrbitAngle) * OrbitConfig.Radius
+        local z = math.sin(OrbitAngle) * OrbitConfig.Radius
+        RootPart.CFrame = CFrame.new(hrp.Position + Vector3.new(x, OrbitConfig.Height, z))
+    end)
+end
+local function StopOrbit() KillConn("orbit") end
+
+-- =============================================================================
+-- 3. TRANSLOCATE — ABSOLUTE MAX: 500,000 studs range
+-- =============================================================================
+local TranslocateConfig = {Enabled = false, Range = 100000, Offset = 5}
+
+local function StartTranslocate()
+    KillConn("translocate")
+    Connections.translocate = RunService.Heartbeat:Connect(function()
+        if not TranslocateConfig.Enabled or not RootPart then KillConn("translocate"); return end
+        local target = GetClosestPlayer()
+        if not target or not target.Character then return end
+        local hrp = target.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local dist = (RootPart.Position - hrp.Position).Magnitude
+        if dist <= TranslocateConfig.Range then
+            local dir = (hrp.Position - RootPart.Position).Unit * TranslocateConfig.Offset
+            RootPart.CFrame = CFrame.new(hrp.Position - dir)
+        end
+    end)
+end
+local function StopTranslocate() KillConn("translocate") end
+
+-- =============================================================================
+-- 4. EVADE — ABSOLUTE MAX: 10,000,000 studs distance
+-- =============================================================================
+local EvadeConfig = {Enabled = false, Distance = 1000000, Delay = 1}
+
+local function EvadeOnce()
+    if not RootPart then return end
+    local a = math.random() * math.pi * 2
+    RootPart.CFrame = CFrame.new(
+        RootPart.Position + Vector3.new(
+            math.cos(a) * EvadeConfig.Distance,
+            math.random(-EvadeConfig.Distance/4, EvadeConfig.Distance/4),
+            math.sin(a) * EvadeConfig.Distance
+        )
+    )
+end
+
+local function StartEvade()
+    EvadeConfig.Enabled = true
+    task.spawn(function()
+        while EvadeConfig.Enabled do
+            task.wait(EvadeConfig.Delay)
+            if not EvadeConfig.Enabled then break end
+            EvadeOnce()
+        end
+    end)
+end
+local function StopEvade() EvadeConfig.Enabled = false end
+
+-- =============================================================================
+-- 5. VOID HIDE — ABSOLUTE MAX: 10,000,000,000 studs high
+-- =============================================================================
+local VoidHideConfig = {Enabled = false, Height = 1000000000, GhostMode = true, OriginalTransparency = {}}
+local OriginalParent = nil
+
+local function HideCharacter()
+    if not LocalCharacter then return end
+    VoidHideConfig.OriginalTransparency = {}
+    OriginalParent = LocalCharacter.Parent
+    for _, d in ipairs(LocalCharacter:GetDescendants()) do
+        if d:IsA("BasePart") then
+            VoidHideConfig.OriginalTransparency[d] = d.Transparency
+            d.Transparency = VoidHideConfig.GhostMode and 0.5 or 1
+            d.CanCollide = false
+        end
+    end
+    LocalCharacter.Parent = workspace.Terrain
+    if RootPart then
+        RootPart.CFrame = CFrame.new(0, VoidHideConfig.Height, 0)
+    end
+end
+
+local function ShowCharacter()
+    if not LocalCharacter then return end
+    for d, origTrans in pairs(VoidHideConfig.OriginalTransparency) do
+        if d and d:IsDescendantOf(workspace) then
+            d.Transparency = origTrans
+            d.CanCollide = true
+        end
+    end
+    VoidHideConfig.OriginalTransparency = {}
+    LocalCharacter.Parent = OriginalParent
+end
+
+local function StartVoidHide()
+    KillConn("voidhide")
+    HideCharacter()
+    Connections.voidhide = RunService.Heartbeat:Connect(function()
+        if not VoidHideConfig.Enabled then KillConn("voidhide"); ShowCharacter(); return end
+        if not RootPart then return end
+        RootPart.CFrame = CFrame.new(0, VoidHideConfig.Height, 0)
+    end)
+end
+local function StopVoidHide()
+    VoidHideConfig.Enabled = false
+    KillConn("voidhide")
+    ShowCharacter()
+end
+
+-- =============================================================================
+-- BUILD OBSIDIAN UI — ABSOLUTE MAX LIMITS 🚀
+-- =============================================================================
+if Library then
+    Library.ShowToggleFrameInKeybinds = true
+    Library.ShowCustomCursor = true
+    Library.NotifySide = "Left"
+
+    local Window = Library:CreateWindow({
+        Title = "FEATURES • ABSOLUTE MAX",
+        Footer = "Obsidian UI • NO LIMITS",
+        Center = true, AutoShow = true, Resizable = true,
+        NotifySide = "Left"
+    })
+
+    -- 📂 ALL TABS
+    local Tabs = {
+        VoidSpam    = Window:AddTab("Void Spam",    "circle"),
+        Orbit       = Window:AddTab("Orbit",       "reload"),
+        Translocate = Window:AddTab("Translocate", "arrows"),
+        Evade       = Window:AddTab("Evade",       "zap"),
+        VoidHide    = Window:AddTab("Void Hide",   "eye-off"),
+        Settings    = Window:AddTab("Settings",    "settings")
+    }
+
+    -- ═══ TAB 1: VOID SPAM — ABSOLUTE MAX ═══
+    local VoidGroup = Tabs.VoidSpam:AddLeftGroupbox("Void Spam")
+    VoidGroup:AddToggle("VoidSpam", {
+        Text = "Enable Void Spam", Default = false,
+        Callback = function(v)
+            VoidConfig.Enabled = v
+            if v then StartVoid() else StopVoid() end
+        end
+    })
+    VoidGroup:AddSlider("VoidSpeed", {
+        Text = "Speed (studs/s)", Default = 100000, Min = 10000, Max = 1000000, Rounding = 10000,
+        Callback = function(v) VoidConfig.Speed = v end
+    })
+    VoidGroup:AddLabel("🚀🚀🚀 SPEED OF LIGHT")
+
+    -- ═══ TAB 2: ORBIT — ABSOLUTE MAX ═══
+    local OrbitGroup = Tabs.Orbit:AddLeftGroupbox("Orbit")
+    OrbitGroup:AddToggle("Orbit", {
+        Text = "Enable Orbit", Default = false,
+        Callback = function(v)
+            OrbitConfig.Enabled = v
+            if v then StartOrbit() else StopOrbit() end
+        end
+    })
+    OrbitGroup:AddSlider("OrbitSpeed", {
+        Text = "Speed (deg/s)", Default = 3600, Min = 360, Max = 10800, Rounding = 360,
+        Callback = function(v) OrbitConfig.Speed = v end
+    })
+    OrbitGroup:AddSlider("OrbitRadius", {
+        Text = "Radius (studs)", Default = 10000, Min = 1000, Max = 100000, Rounding = 1000,
+        Callback = function(v) OrbitConfig.Radius = v end
+    })
+    OrbitGroup:AddLabel("🌀🌀🌀 BLACK HOLE ORBIT")
+
+    -- ═══ TAB 3: TRANSLOCATE — ABSOLUTE MAX ═══
+    local TransGroup = Tabs.Translocate:AddLeftGroupbox("Translocate")
+    TransGroup:AddToggle("Translocate", {
+        Text = "Enable Translocate", Default = false,
+        Callback = function(v)
+            TranslocateConfig.Enabled = v
+            if v then StartTranslocate() else StopTranslocate() end
+        end
+    })
+    TransGroup:AddSlider("TransRange", {
+        Text = "Range (studs)", Default = 100000, Min = 10000, Max = 500000, Rounding = 10000,
+        Callback = function(v) TranslocateConfig.Range = v end
+    })
+    TransGroup:AddLabel("⚡⚡⚡ ACROSS THE UNIVERSE")
+
+    -- ═══ TAB 4: EVADE — ABSOLUTE MAX ═══
+    local EvadeGroup = Tabs.Evade:AddLeftGroupbox("Evade")
+    EvadeGroup:AddToggle("Evade", {
+        Text = "Enable Evade", Default = false,
+        Callback = function(v)
+            EvadeConfig.Enabled = v
+            if v then StartEvade() else StopEvade() end
+        end
+    })
+    EvadeGroup:AddSlider("EvadeDistance", {
+        Text = "Distance (studs)", Default = 1000000, Min = 100000, Max = 10000000, Rounding = 100000,
+        Callback = function(v) EvadeConfig.Distance = v end
+    })
+    EvadeGroup:AddSlider("EvadeDelay", {
+        Text = "Delay (seconds)", Default = 1, Min = 0.01, Max = 3, Rounding = 0.01,
+        Callback = function(v) EvadeConfig.Delay = v end
+    })
+    EvadeGroup:AddButton("EVADING NOW!!!", EvadeOnce)
+    EvadeGroup:AddLabel("💨💨💨 VANISH EXISTENCE")
+
+    -- ═══ TAB 5: VOID HIDE — ABSOLUTE MAX ═══
+    local VoidHideGroup = Tabs.VoidHide:AddLeftGroupbox("Void Hide")
+    VoidHideGroup:AddToggle("VoidHide", {
+        Text = "Enable Void Hide", Default = false,
+        Callback = function(v)
+            VoidHideConfig.Enabled = v
+            if v then StartVoidHide() else StopVoidHide() end
+        end
+    })
+    VoidHideGroup:AddSlider("VoidHideHeight", {
+        Text = "Height (studs)", Default = 1000000000, Min = 10000000, Max = 10000000000, Rounding = 10000000,
+        Callback = function(v) VoidHideConfig.Height = v end
+    })
+    VoidHideGroup:AddLabel("☁️☁️☁️ BEYOND SPACE")
+
+    -- ═══ TAB 6: SETTINGS ═══
+    local SettingsGroup = Tabs.Settings:AddLeftGroupbox("Menu Settings")
+    SettingsGroup:AddToggle("KeybindMenuOpen", {
+        Default = Library.KeybindFrame.Visible, Text = "Open Keybind Menu",
+        Callback = function(v) Library.KeybindFrame.Visible = v end
+    })
+    SettingsGroup:AddToggle("ShowCustomCursor", {
+        Text = "Custom Cursor", Default = true,
+        Callback = function(v) Library.ShowCustomCursor = v end
+    })
+    SettingsGroup:AddDivider()
+    SettingsGroup:AddLabel("Menu Keybind"):AddKeyPicker("MenuKeybind", {
+        Default = "RightShift", NoUI = true, Text = "Toggle Menu"
+    })
+    SettingsGroup:AddButton("💀 DESTROY SCRIPT 💀", function() Library:Unload() end)
+
+    Library.ToggleKeybind = Library.Options.MenuKeybind
+
+    -- Theme & Save Manager
+    if ThemeManager and SaveManager then
+        ThemeManager:SetLibrary(Library)
+        SaveManager:SetLibrary(Library)
+        SaveManager:IgnoreThemeSettings()
+        SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
+        ThemeManager:SetFolder("FeatureHub")
+        SaveManager:SetFolder("FeatureHub/game")
+        SaveManager:BuildConfigSection(Tabs.Settings)
+        ThemeManager:ApplyToTab(Tabs.Settings)
+        SaveManager:LoadAutoloadConfig()
+    end
+
+    Library:SetWatermarkVisibility(true)
+    Library:SetWatermark("ABSOLUTE MAX • NO LIMITS")
+    Library:Notify("🚨 ALL LIMITS BROKEN! 🚨", 5)
+else
+    -- FALLBACK KEYBINDS
+    print("[FALLBACK] Obsidian failed — using keybinds")
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.KeyCode == Enum.KeyCode.One then
+            VoidConfig.Enabled = not VoidConfig.Enabled
+            if VoidConfig.Enabled then StartVoid() else StopVoid() end
+            print("Void Spam:", VoidConfig.Enabled and "✅ ON" or "❌ OFF")
+        elseif input.KeyCode == Enum.KeyCode.Two then
+            OrbitConfig.Enabled = not OrbitConfig.Enabled
+            if OrbitConfig.Enabled then StartOrbit() else StopOrbit() end
+            print("Orbit:", OrbitConfig.Enabled and "✅ ON" or "❌ OFF")
+        elseif input.KeyCode == Enum.KeyCode.Three then
+            TranslocateConfig.Enabled = not TranslocateConfig.Enabled
+            if TranslocateConfig.Enabled then StartTranslocate() else StopTranslocate() end
+            print("Translocate:", TranslocateConfig.Enabled and "✅ ON" or "❌ OFF")
+        elseif input.KeyCode == Enum.KeyCode.Four then
+            EvadeConfig.Enabled = not EvadeConfig.Enabled
+            if EvadeConfig.Enabled then StartEvade() else StopEvade() end
+            print("Evade:", EvadeConfig.Enabled and "✅ ON" or "❌ OFF")
+        elseif input.KeyCode == Enum.KeyCode.Five then
+            VoidHideConfig.Enabled = not VoidHideConfig.Enabled
+            if VoidHideConfig.Enabled then StartVoidHide() else StopVoidHide() end
+            print("Void Hide:", VoidHideConfig.Enabled and "✅ ON" or "❌ OFF")
+        elseif input.KeyCode == Enum.KeyCode.Six then
+            EvadeOnce(); print("⚡⚡⚡ VANISHED!")
+        end
+    end)
+end
