@@ -1,0 +1,581 @@
+-- =============================================================================
+-- DELTA + OBSIDIAN — SLIDERS FULLY FIXED • PERFECT SCALES
+-- All sliders drag smoothly • Values update live • No weird ranges
+-- =============================================================================
+
+-- SERVICES
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+
+-- LOCAL PLAYER
+local LocalPlayer = Players.LocalPlayer
+local LocalCharacter, RootPart, Humanoid = nil, nil, nil
+local Connections = {}
+
+-- =============================================================================
+-- OBSIDIAN UI LOADING — Delta Safe
+-- =============================================================================
+local Library, ThemeManager, SaveManager
+local UI_Loaded = false
+
+local function LoadObsidianUI()
+    print("[DELTA] Loading Obsidian UI...")
+    local repos = {
+        "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/",
+        "https://raw.githubusercontent.com/deividcomsono/Obsidian/master/",
+    }
+    
+    for _, repo in ipairs(repos) do
+        local ok, result = pcall(function()
+            local lib = loadstring(game:HttpGet(repo .. "Library.lua"))()
+            local tm, sm = nil, nil
+            pcall(function() tm = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))() end)
+            pcall(function() sm = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))() end)
+            return {lib, tm, sm}
+        end)
+        
+        if ok and result and result[1] then
+            Library, ThemeManager, SaveManager = result[1], result[2], result[3]
+            UI_Loaded = true
+            print("[DELTA] ✅ Obsidian UI Loaded!")
+            return true
+        end
+    end
+    warn("[DELTA] ⚠️ UI Load Failed — Keybinds Only Mode")
+    return false
+end
+
+LoadObsidianUI()
+
+-- =============================================================================
+-- HELPERS
+-- =============================================================================
+local function KillConn(key)
+    if Connections[key] then Connections[key]:Disconnect(); Connections[key] = nil end
+end
+
+local function KillAllConns()
+    for k in pairs(Connections) do KillConn(k) end
+    table.clear(Connections)
+end
+
+-- CHARACTER BINDING
+local function BindCharacter(char)
+    if not char then return end
+    KillAllConns()
+    LocalCharacter = char
+    RootPart = char:WaitForChild("HumanoidRootPart", 10)
+    Humanoid = char:WaitForChild("Humanoid", 10)
+end
+
+if LocalPlayer.Character then task.spawn(BindCharacter, LocalPlayer.Character) end
+LocalPlayer.CharacterAdded:Connect(BindCharacter)
+LocalPlayer.CharacterRemoving:Connect(function()
+    LocalCharacter, RootPart, Humanoid = nil, nil, nil
+end)
+
+-- GET CLOSEST PLAYER
+local function GetClosestPlayer(maxRange)
+    if not RootPart then return nil end
+    maxRange = maxRange or math.huge
+    local best, bestDist = nil, math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == LocalPlayer then continue end
+        local char = p.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChild("Humanoid")
+        if hrp and hum and hum.Health > 0 then
+            local dist = (RootPart.Position - hrp.Position).Magnitude
+            if dist < bestDist and dist <= maxRange then
+                bestDist, best = dist, p
+            end
+        end
+    end
+    return best
+end
+
+-- =============================================================================
+-- 🔥 VOID KILLER
+-- =============================================================================
+local VoidKillerConfig = {
+    Enabled = false,
+    MinHeight = 5000,
+    MinSpeed = 1000,
+    CheckInterval = 0.5,
+    KillMode = "Kill"
+}
+local PlayerStates = {}
+
+local function KillPlayer(player)
+    local hum = player.Character and player.Character:FindFirstChild("Humanoid")
+    if hum then pcall(function() hum.Health = 0 end) end
+    print("[VOID KILLER] Killed: " .. player.Name)
+    if UI_Loaded then Library:Notify("Killed voider: " .. player.Name, 3) end
+end
+
+local function KickPlayer(player)
+    pcall(function() player:Kick("[VOID DETECTED] - Exploiting detected") end)
+end
+
+local function UpdateVoidKiller()
+    if not VoidKillerConfig.Enabled then return end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == LocalPlayer then continue end
+        local hrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end
+        local state = PlayerStates[p] or {LastPos = hrp.Position, LastTime = os.clock()}
+        local now = os.clock()
+        local dt = now - state.LastTime
+        if dt >= VoidKillerConfig.CheckInterval then
+            if hrp.Position.Y > VoidKillerConfig.MinHeight then
+                print("[VOID KILLER] " .. p.Name .. " TOO HIGH")
+                if VoidKillerConfig.KillMode == "Kill" then KillPlayer(p) else KickPlayer(p) end
+            end
+            local speed = (hrp.Position - state.LastPos).Magnitude / dt
+            if speed > VoidKillerConfig.MinSpeed then
+                print("[VOID KILLER] " .. p.Name .. " TOO FAST")
+                if VoidKillerConfig.KillMode == "Kill" then KillPlayer(p) else KickPlayer(p) end
+            end
+            state.LastPos = hrp.Position
+            state.LastTime = now
+        end
+        PlayerStates[p] = state
+    end
+end
+
+-- =============================================================================
+-- 1. VOID SPAM — ✅ SCALES FIXED • SMOOTH RANGES
+-- =============================================================================
+local VoidConfig = {
+    Enabled = false,
+    Speed = 5000,
+    Altitude = 50000,
+    SpinSpeed = 0,
+    Gravity = 0,
+    RandomX = true,
+    RandomY = true,
+    RandomZ = true
+}
+
+local function UpdateVoidSpam()
+    if not RootPart or not VoidConfig.Enabled then return end
+    pcall(function()
+        local vx = VoidConfig.RandomX and (math.random()-0.5)*VoidConfig.Speed or 0
+        local vy = VoidConfig.RandomY and (math.random()-0.5)*VoidConfig.Speed or VoidConfig.Gravity
+        local vz = VoidConfig.RandomZ and (math.random()-0.5)*VoidConfig.Speed or 0
+        
+        RootPart.CFrame = CFrame.new(RootPart.Position.X, VoidConfig.Altitude, RootPart.Position.Z)
+        RootPart.AssemblyLinearVelocity = Vector3.new(vx, vy, vz)
+        
+        if VoidConfig.SpinSpeed > 0 then
+            RootPart.CFrame *= CFrame.Angles(0, math.rad(VoidConfig.SpinSpeed)*os.clock(), 0)
+        end
+    end)
+end
+
+-- =============================================================================
+-- 2. ORBIT — ✅ SCALES FIXED • SMOOTH RANGES
+-- =============================================================================
+local OrbitConfig = {
+    Enabled = false,
+    Speed = 360,
+    Radius = 30,
+    Height = 5,
+    Tilt = 0,
+    Range = 500,
+    Smoothness = 1
+}
+local OrbitAngle = 0
+
+local function UpdateOrbit(dt)
+    if not RootPart or not OrbitConfig.Enabled then return end
+    local target = GetClosestPlayer(OrbitConfig.Range)
+    local hrp = target and target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    OrbitAngle += math.rad(OrbitConfig.Speed) * dt * OrbitConfig.Smoothness
+    local x = math.cos(OrbitAngle) * OrbitConfig.Radius
+    local z = math.sin(OrbitAngle) * OrbitConfig.Radius
+    local offset = Vector3.new(x, OrbitConfig.Height, z)
+    
+    if OrbitConfig.Tilt ~= 0 then
+        pcall(function() RootPart.CFrame = CFrame.new(hrp.Position + offset) * CFrame.Angles(math.rad(OrbitConfig.Tilt), 0, 0) end)
+    else
+        pcall(function() RootPart.CFrame = CFrame.new(hrp.Position + offset) end)
+    end
+end
+
+-- =============================================================================
+-- 3. TRANSLOCATE — ✅ SCALES FIXED • SMOOTH RANGES
+-- =============================================================================
+local TranslocateConfig = {
+    Enabled = false,
+    Range = 1000,
+    Offset = 5,
+    MinDistance = 15,
+    Lift = 0
+}
+
+local function UpdateTranslocate()
+    if not RootPart or not TranslocateConfig.Enabled then return end
+    local target = GetClosestPlayer(TranslocateConfig.Range)
+    local hrp = target and target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    local dist = (RootPart.Position - hrp.Position).Magnitude
+    if dist < TranslocateConfig.MinDistance then return end
+    
+    pcall(function()
+        local dir = (hrp.Position - RootPart.Position).Unit * TranslocateConfig.Offset
+        RootPart.CFrame = CFrame.new(hrp.Position - dir + Vector3.new(0, TranslocateConfig.Lift, 0))
+    end)
+end
+
+-- =============================================================================
+-- 4. EVADE — ✅ SCALES FIXED • SMOOTH RANGES
+-- =============================================================================
+local EvadeConfig = {
+    Enabled = false,
+    Distance = 200,
+    Delay = 1.5,
+    MinHeight = -50,
+    MaxHeight = 150,
+    Direction = 360
+}
+local LastEvade = os.clock()
+
+local function EvadeOnce()
+    if not RootPart then return end
+    LastEvade = os.clock()
+    local angle = EvadeConfig.Direction == 360 and math.random() * math.pi * 2 or math.rad(EvadeConfig.Direction)
+    local y = math.random(EvadeConfig.MinHeight, EvadeConfig.MaxHeight)
+    pcall(function()
+        RootPart.CFrame = CFrame.new(RootPart.Position + Vector3.new(
+            math.cos(angle) * EvadeConfig.Distance,
+            y,
+            math.sin(angle) * EvadeConfig.Distance
+        ))
+    end)
+end
+
+local function UpdateEvade()
+    if not RootPart or not EvadeConfig.Enabled then return end
+    if os.clock() - LastEvade >= EvadeConfig.Delay then EvadeOnce() end
+end
+
+-- =============================================================================
+-- 5. VOID HIDE — ✅ SCALES FIXED • SMOOTH RANGES
+-- =============================================================================
+local VoidHideConfig = {
+    Enabled = false,
+    Height = 50000,
+    Transparency = 0.8,
+    GhostMode = true,
+    NoCollision = true,
+    HideName = false
+}
+local OriginalTransparency, OriginalParent = {}, nil
+local OriginalCanCollide, OriginalName = {}, nil
+
+local function HideCharacter()
+    if not LocalCharacter or OriginalParent then return end
+    OriginalParent = LocalCharacter.Parent
+    OriginalTransparency = {}
+    OriginalCanCollide = {}
+    
+    for _, d in ipairs(LocalCharacter:GetDescendants()) do
+        if d:IsA("BasePart") then
+            OriginalTransparency[d] = d.Transparency
+            OriginalCanCollide[d] = d.CanCollide
+            d.Transparency = VoidHideConfig.GhostMode and VoidHideConfig.Transparency or 1
+            d.CanCollide = not VoidHideConfig.NoCollision
+        end
+    end
+    
+    if VoidHideConfig.HideName then
+        local hum = LocalCharacter:FindFirstChild("Humanoid")
+        if hum then OriginalName = hum.DisplayName; hum.DisplayName = "" end
+    end
+    
+    LocalCharacter.Parent = Workspace.Terrain
+    if RootPart then RootPart.CFrame = CFrame.new(0, VoidHideConfig.Height, 0) end
+end
+
+local function ShowCharacter()
+    if not LocalCharacter or not OriginalParent then return end
+    for part, t in pairs(OriginalTransparency) do
+        if part and part:IsDescendantOf(Workspace) then
+            part.Transparency = t
+            part.CanCollide = OriginalCanCollide[part]
+        end
+    end
+    if OriginalName then
+        local hum = LocalCharacter:FindFirstChild("Humanoid")
+        if hum then hum.DisplayName = OriginalName end
+    end
+    OriginalTransparency, OriginalCanCollide, OriginalParent, OriginalName = {}, {}, nil, nil
+    LocalCharacter.Parent = OriginalParent
+end
+
+local function UpdateVoidHide()
+    if not RootPart then return end
+    if VoidHideConfig.Enabled then
+        if not OriginalParent then HideCharacter() end
+        pcall(function() RootPart.CFrame = CFrame.new(0, VoidHideConfig.Height, 0) end)
+    else
+        if OriginalParent then ShowCharacter() end
+    end
+end
+
+-- =============================================================================
+-- MAIN LOOP
+-- =============================================================================
+Connections.Main = RunService.Heartbeat:Connect(function(dt)
+    if not RootPart or not Humanoid or Humanoid.Health <= 0 then return end
+    pcall(UpdateVoidSpam)
+    pcall(UpdateOrbit, dt)
+    pcall(UpdateTranslocate)
+    pcall(UpdateEvade)
+    pcall(UpdateVoidHide)
+    pcall(UpdateVoidKiller)
+end)
+
+-- =============================================================================
+-- ✅ OBSIDIAN UI — SLIDERS FULLY FIXED • PERFECT RANGES
+-- =============================================================================
+if UI_Loaded and Library then
+    Library.ShowToggleFrameInKeybinds = true
+    Library.ShowCustomCursor = true
+    Library.NotifySide = "Left"
+
+    local Window = Library:CreateWindow({
+        Title = "FEATURE MENU • DELTA",
+        Footer = "Sliders Fixed • Perfect Scales",
+        Center = true, AutoShow = true, Resizable = true
+    })
+
+    local Tabs = {
+        VoidSpam    = Window:AddTab("Void Spam",    "circle"),
+        Orbit       = Window:AddTab("Orbit",       "reload"),
+        Translocate = Window:AddTab("Translocate", "arrows"),
+        Evade       = Window:AddTab("Evade",       "zap"),
+        VoidHide    = Window:AddTab("Void Hide",   "eye-off"),
+        VoidKiller  = Window:AddTab("Void Killer", "shield-alert"),
+        Settings    = Window:AddTab("Settings",    "settings")
+    }
+
+    -- ═══ VOID SPAM TAB — ✅ FIXED SCALES ═══
+    local VoidGroup = Tabs.VoidSpam:AddLeftGroupbox("Void Spam")
+    VoidGroup:AddToggle("VoidEnabled", {
+        Text = "Enable Void Spam", Default = false,
+        Callback = function(v) VoidConfig.Enabled = v end
+    })
+    VoidGroup:AddSlider("VoidSpeed", {
+        Text = "Speed", Default = 5000, Min = 100, Max = 20000, Rounding = 100,
+        Callback = function(val) VoidConfig.Speed = val end
+    })
+    VoidGroup:AddSlider("VoidHeight", {
+        Text = "Height", Default = 50000, Min = 1000, Max = 200000, Rounding = 1000,
+        Callback = function(val) VoidConfig.Altitude = val end
+    })
+    VoidGroup:AddSlider("VoidSpin", {
+        Text = "Spin Speed", Default = 0, Min = 0, Max = 1080, Rounding = 10,
+        Callback = function(val) VoidConfig.SpinSpeed = val end
+    })
+    VoidGroup:AddSlider("VoidGravity", {
+        Text = "Vertical Force", Default = 0, Min = -2000, Max = 2000, Rounding = 100,
+        Callback = function(val) VoidConfig.Gravity = val end
+    })
+    VoidGroup:AddDivider()
+    VoidGroup:AddToggle("RandX", {Text = "Random X", Default = true, Callback = function(v) VoidConfig.RandomX = v end})
+    VoidGroup:AddToggle("RandY", {Text = "Random Y", Default = true, Callback = function(v) VoidConfig.RandomY = v end})
+    VoidGroup:AddToggle("RandZ", {Text = "Random Z", Default = true, Callback = function(v) VoidConfig.RandomZ = v end})
+
+    -- ═══ ORBIT TAB — ✅ FIXED SCALES ═══
+    local OrbitGroup = Tabs.Orbit:AddLeftGroupbox("Orbit")
+    OrbitGroup:AddToggle("OrbitEnabled", {
+        Text = "Enable Orbit", Default = false,
+        Callback = function(v) OrbitConfig.Enabled = v end
+    })
+    OrbitGroup:AddSlider("OrbitSpeed", {
+        Text = "Orbit Speed", Default = 360, Min = 30, Max = 1440, Rounding = 10,
+        Callback = function(val) OrbitConfig.Speed = val end
+    })
+    OrbitGroup:AddSlider("OrbitRadius", {
+        Text = "Radius", Default = 30, Min = 5, Max = 200, Rounding = 1,
+        Callback = function(val) OrbitConfig.Radius = val end
+    })
+    OrbitGroup:AddSlider("OrbitHeight", {
+        Text = "Height Offset", Default = 5, Min = -50, Max = 100, Rounding = 1,
+        Callback = function(val) OrbitConfig.Height = val end
+    })
+    OrbitGroup:AddSlider("OrbitTilt", {
+        Text = "Tilt Angle", Default = 0, Min = -45, Max = 45, Rounding = 1,
+        Callback = function(val) OrbitConfig.Tilt = val end
+    })
+    OrbitGroup:AddSlider("OrbitRange", {
+        Text = "Target Range", Default = 500, Min = 50, Max = 2000, Rounding = 10,
+        Callback = function(val) OrbitConfig.Range = val end
+    })
+    OrbitGroup:AddSlider("OrbitSmooth", {
+        Text = "Smoothness", Default = 1, Min = 0.2, Max = 2, Rounding = 0.1,
+        Callback = function(val) OrbitConfig.Smoothness = val end
+    })
+
+    -- ═══ TRANSLOCATE TAB — ✅ FIXED SCALES ═══
+    local TransGroup = Tabs.Translocate:AddLeftGroupbox("Translocate")
+    TransGroup:AddToggle("TransEnabled", {
+        Text = "Enable Translocate", Default = false,
+        Callback = function(v) TranslocateConfig.Enabled = v end
+    })
+    TransGroup:AddSlider("TransRange", {
+        Text = "Max Range", Default = 1000, Min = 100, Max = 3000, Rounding = 50,
+        Callback = function(val) TranslocateConfig.Range = val end
+    })
+    TransGroup:AddSlider("TransOffset", {
+        Text = "Distance From Enemy", Default = 5, Min = 1, Max = 50, Rounding = 1,
+        Callback = function(val) TranslocateConfig.Offset = val end
+    })
+    TransGroup:AddSlider("TransMinDist", {
+        Text = "Min Distance To TP", Default = 15, Min = 0, Max = 100, Rounding = 1,
+        Callback = function(val) TranslocateConfig.MinDistance = val end
+    })
+    TransGroup:AddSlider("TransLift", {
+        Text = "Lift Height", Default = 0, Min = -20, Max = 50, Rounding = 1,
+        Callback = function(val) TranslocateConfig.Lift = val end
+    })
+
+    -- ═══ EVADE TAB — ✅ FIXED SCALES ═══
+    local EvadeGroup = Tabs.Evade:AddLeftGroupbox("Evade")
+    EvadeGroup:AddToggle("EvadeEnabled", {
+        Text = "Enable Auto-Evade", Default = false,
+        Callback = function(v) EvadeConfig.Enabled = v end
+    })
+    EvadeGroup:AddSlider("EvadeDist", {
+        Text = "Evade Distance", Default = 200, Min = 20, Max = 1000, Rounding = 10,
+        Callback = function(val) EvadeConfig.Distance = val end
+    })
+    EvadeGroup:AddSlider("EvadeDelay", {
+        Text = "Delay Between Evades", Default = 1.5, Min = 0.2, Max = 5, Rounding = 0.1,
+        Callback = function(val) EvadeConfig.Delay = val end
+    })
+    EvadeGroup:AddSlider("EvadeDir", {
+        Text = "Direction (360=Random)", Default = 360, Min = 0, Max = 360, Rounding = 15,
+        Callback = function(val) EvadeConfig.Direction = val end
+    })
+    EvadeGroup:AddSlider("EvadeMinY", {
+        Text = "Min Height", Default = -50, Min = -200, Max = 0, Rounding = 5,
+        Callback = function(val) EvadeConfig.MinHeight = val end
+    })
+    EvadeGroup:AddSlider("EvadeMaxY", {
+        Text = "Max Height", Default = 150, Min = 0, Max = 500, Rounding = 5,
+        Callback = function(val) EvadeConfig.MaxHeight = val end
+    })
+    EvadeGroup:AddButton("⚡ Evade Now!", EvadeOnce)
+
+    -- ═══ VOID HIDE TAB — ✅ FIXED SCALES ═══
+    local HideGroup = Tabs.VoidHide:AddLeftGroupbox("Void Hide")
+    HideGroup:AddToggle("HideEnabled", {
+        Text = "Enable Void Hide", Default = false,
+        Callback = function(v)
+            VoidHideConfig.Enabled = v
+            if not v and OriginalParent then ShowCharacter() end
+        end
+    })
+    HideGroup:AddSlider("HideHeight", {
+        Text = "Hide Height", Default = 50000, Min = 2000, Max = 150000, Rounding = 1000,
+        Callback = function(val) VoidHideConfig.Height = val end
+    })
+    HideGroup:AddSlider("HideTrans", {
+        Text = "Transparency", Default = 0.8, Min = 0, Max = 1, Rounding = 0.05,
+        Callback = function(val)
+            VoidHideConfig.Transparency = val
+            if VoidHideConfig.Enabled and OriginalParent then
+                for part in pairs(OriginalTransparency) do
+                    if part then part.Transparency = val end
+                end
+            end
+        end
+    })
+    HideGroup:AddDivider()
+    HideGroup:AddToggle("GhostMode", {Text = "Ghost Mode", Default = true, Callback = function(v) VoidHideConfig.GhostMode = v end})
+    HideGroup:AddToggle("NoCollision", {Text = "No Collision", Default = true, Callback = function(v) VoidHideConfig.NoCollision = v end})
+    HideGroup:AddToggle("HideName", {Text = "Hide Name", Default = false, Callback = function(v) VoidHideConfig.HideName = v end})
+
+    -- ═══ VOID KILLER TAB — ✅ FIXED SCALES ═══
+    local VKGroup = Tabs.VoidKiller:AddLeftGroupbox("Void Killer")
+    VKGroup:AddToggle("VKEnabled", {
+        Text = "Enable Void Killer", Default = false,
+        Callback = function(v)
+            VoidKillerConfig.Enabled = v
+            if v then PlayerStates = {} end
+        end
+    })
+    VKGroup:AddSlider("VKHeight", {
+        Text = "Flag Height", Default = 5000, Min = 1000, Max = 20000, Rounding = 500,
+        Callback = function(val) VoidKillerConfig.MinHeight = val end
+    })
+    VKGroup:AddSlider("VKSpeed", {
+        Text = "Flag Speed", Default = 1000, Min = 200, Max = 5000, Rounding = 100,
+        Callback = function(val) VoidKillerConfig.MinSpeed = val end
+    })
+    VKGroup:AddSlider("VKInterval", {
+        Text = "Check Interval", Default = 0.5, Min = 0.2, Max = 2, Rounding = 0.1,
+        Callback = function(val) VoidKillerConfig.CheckInterval = val end
+    })
+    VKGroup:AddDropdown("VKMode", {
+        Text = "Action", Default = "Kill", Options = {"Kill", "Kick"},
+        Callback = function(val) VoidKillerConfig.KillMode = val end
+    })
+
+    -- ═══ SETTINGS TAB ═══
+    local SettingsGroup = Tabs.Settings:AddLeftGroupbox("Settings")
+    SettingsGroup:AddToggle("KeybindMenuOpen", {Default = Library.KeybindFrame.Visible, Text = "Open Keybind Menu", Callback = function(v) Library.KeybindFrame.Visible = v end})
+    SettingsGroup:AddToggle("ShowCustomCursor", {Text = "Custom Cursor", Default = true, Callback = function(v) Library.ShowCustomCursor = v end})
+    SettingsGroup:AddDivider()
+    SettingsGroup:AddLabel("Menu Keybind"):AddKeyPicker("MenuKeybind", {Default = "RightShift", NoUI = true, Text = "Toggle Menu"})
+    SettingsGroup:AddButton("Unload", function() KillAllConns(); if Library then Library:Unload() end end)
+
+    Library.ToggleKeybind = Library.Options.MenuKeybind
+
+    if ThemeManager and SaveManager then
+        pcall(function()
+            ThemeManager:SetLibrary(Library)
+            SaveManager:SetLibrary(Library)
+            SaveManager:IgnoreThemeSettings()
+            SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
+            ThemeManager:SetFolder("FeatureMenu")
+            SaveManager:SetFolder("FeatureMenu/Config")
+            SaveManager:BuildConfigSection(Tabs.Settings)
+            ThemeManager:ApplyToTab(Tabs.Settings)
+            SaveManager:LoadAutoloadConfig()
+        end)
+    end
+
+    Library:SetWatermarkVisibility(true)
+    Library:SetWatermark("DELTA • Sliders Fixed ✅")
+    Library:Notify("✅ ALL SLIDERS FIXED & WORKING!", 4)
+end
+
+-- =============================================================================
+-- FALLBACK KEYBINDS
+-- =============================================================================
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    local k = input.KeyCode
+    if k == Enum.KeyCode.One then VoidConfig.Enabled = not VoidConfig.Enabled; print("Void Spam:", VoidConfig.Enabled and "ON" or "OFF")
+    elseif k == Enum.KeyCode.Two then OrbitConfig.Enabled = not OrbitConfig.Enabled; print("Orbit:", OrbitConfig.Enabled and "ON" or "OFF")
+    elseif k == Enum.KeyCode.Three then TranslocateConfig.Enabled = not TranslocateConfig.Enabled; print("Translocate:", TranslocateConfig.Enabled and "ON" or "OFF")
+    elseif k == Enum.KeyCode.Four then EvadeConfig.Enabled = not EvadeConfig.Enabled; print("Evade:", EvadeConfig.Enabled and "ON" or "OFF")
+    elseif k == Enum.KeyCode.Five then VoidHideConfig.Enabled = not VoidHideConfig.Enabled; if not VoidHideConfig.Enabled and OriginalParent then ShowCharacter() end; print("Void Hide:", VoidHideConfig.Enabled and "ON" or "OFF")
+    elseif k == Enum.KeyCode.Six then VoidKillerConfig.Enabled = not VoidKillerConfig.Enabled; PlayerStates={}; print("Void Killer:", VoidKillerConfig.Enabled and "ON" or "OFF")
+    elseif k == Enum.KeyCode.Seven then EvadeOnce(); print("Evaded Now!") end
+end)
+
+print("========================================")
+print("✅ ALL SLIDERS FIXED — DRAG SMOOTHLY!")
+print("Keybinds: 1=VoidSpam 2=Orbit 3=Translocate")
+print("          4=Evade 5=VoidHide 6=VoidKiller 7=EvadeNow")
+print("========================================")
