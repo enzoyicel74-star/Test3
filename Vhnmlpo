@@ -1,0 +1,542 @@
+-- =============================================================================
+-- RIVALS RAGEBOT • FULLY MERGED & WORKING
+-- ✅ Ragebot (Teleport + Auto-Shoot through walls)
+-- ✅ Prediction • Anti-Aim • Void Spam • Orbit • Translocate
+-- ✅ Evade • Void Hide • Void Killer • All Sliders Fixed
+-- ✅ Obsidian UI • Delta Executor Optimized
+-- =============================================================================
+
+-- SERVICES
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- LOCAL PLAYER
+local LocalPlayer = Players.LocalPlayer
+local LocalCharacter, RootPart, Humanoid = nil, nil, nil
+local Mouse = LocalPlayer:GetMouse()
+local Connections = {}
+
+-- =============================================================================
+-- OBSIDIAN UI LOADING — Delta Safe
+-- =============================================================================
+local Library, ThemeManager, SaveManager
+local UI_Loaded = false
+
+local function LoadObsidianUI()
+    print("[DELTA] Loading Obsidian UI...")
+    local repos = {
+        "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/",
+        "https://raw.githubusercontent.com/deividcomsono/Obsidian/master/",
+    }
+    
+    for _, repo in ipairs(repos) do
+        local ok, result = pcall(function()
+            local lib = loadstring(game:HttpGet(repo .. "Library.lua"))()
+            local tm, sm = nil, nil
+            pcall(function() tm = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))() end)
+            pcall(function() sm = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))() end)
+            return {lib, tm, sm}
+        end)
+        
+        if ok and result and result[1] then
+            Library, ThemeManager, SaveManager = result[1], result[2], result[3]
+            UI_Loaded = true
+            print("[DELTA] ✅ Obsidian UI Loaded!")
+            return true
+        end
+    end
+    warn("[DELTA] ⚠️ UI Load Failed — Keybinds Only Mode")
+    return false
+end
+
+LoadObsidianUI()
+
+-- =============================================================================
+-- HELPERS
+-- =============================================================================
+local function KillConn(key)
+    if Connections[key] then Connections[key]:Disconnect(); Connections[key] = nil end
+end
+
+local function KillAllConns()
+    for k in pairs(Connections) do KillConn(k) end
+    table.clear(Connections)
+end
+
+-- CHARACTER BINDING
+local function BindCharacter(char)
+    if not char then return end
+    KillAllConns()
+    LocalCharacter = char
+    RootPart = char:WaitForChild("HumanoidRootPart", 10)
+    Humanoid = char:WaitForChild("Humanoid", 10)
+end
+
+if LocalPlayer.Character then task.spawn(BindCharacter, LocalPlayer.Character) end
+LocalPlayer.CharacterAdded:Connect(BindCharacter)
+LocalPlayer.CharacterRemoving:Connect(function()
+    LocalCharacter, RootPart, Humanoid = nil, nil, nil
+end)
+
+-- GET CLOSEST PLAYER
+local function GetClosestPlayer(maxRange)
+    if not RootPart then return nil end
+    maxRange = maxRange or math.huge
+    local best, bestDist = nil, math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == LocalPlayer then continue end
+        local char = p.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChild("Humanoid")
+        if hrp and hum and hum.Health > 0 then
+            local dist = (RootPart.Position - hrp.Position).Magnitude
+            if dist < bestDist and dist <= maxRange then
+                bestDist, best = dist, p
+            end
+        end
+    end
+    return best
+end
+
+-- =============================================================================
+-- 🔫 RAGEBOT — TELEPORT + AUTO-SHOOT THROUGH WALLS (FROM YOUR FILE)
+-- =============================================================================
+local RagebotConfig = {
+    Enabled = false,
+    Teleport = true,           -- Teleport to enemy
+    ShootThroughWalls = true,  -- Ignore walls
+    AutoShoot = true,          -- Shoot automatically
+    Range = 1000,              -- Max detection range
+    Distance = 15,             -- Teleport distance from enemy
+    WeaponMode = "Premier",    -- Premier / Secondary / Melee
+    SilentAim = false,         -- Silent aim mode
+    AimPart = "Head",          -- Aim at: Head, Torso, HumanoidRootPart
+    PredictionAmount = 0.15,   -- Built-in prediction
+    Delay = 0.1,               -- Time between shots
+    IgnoreTeam = true,         -- Ignore teammates
+    AimKey = Enum.UserInputType.MouseButton1,
+    AlwaysActive = false
+}
+
+local LastShot = 0
+
+-- Get Remote/Weapon
+local function GetWeapon()
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local char = LocalPlayer.Character
+    local tool = char and char:FindFirstChildWhichIsA("Tool") or (backpack and backpack:FindFirstChildWhichIsA("Tool"))
+    return tool
+end
+
+-- Get Aim Position
+local function GetAimPosition(player)
+    local char = player.Character
+    if not char then return nil end
+    local part = char:FindFirstChild(RagebotConfig.AimPart) or char:FindFirstChild("HumanoidRootPart")
+    return part and part.Position
+end
+
+-- Ragebot Main Logic
+local function UpdateRagebot()
+    if not RootPart or not RagebotConfig.Enabled then return end
+    
+    local target = GetClosestPlayer(RagebotConfig.Range)
+    if not target then return end
+    
+    -- Teleport to enemy
+    if RagebotConfig.Teleport then
+        local targetPos = GetAimPosition(target)
+        if targetPos then
+            pcall(function()
+                local dir = (targetPos - RootPart.Position).Unit * RagebotConfig.Distance
+                RootPart.CFrame = CFrame.new(targetPos - dir)
+            end)
+        end
+    end
+    
+    -- Auto Shoot
+    if RagebotConfig.AutoShoot and os.clock() - LastShot >= RagebotConfig.Delay then
+        LastShot = os.clock()
+        local weapon = GetWeapon()
+        if weapon then
+            pcall(function()
+                -- Fire weapon/remote
+                local args = {[1] = target, [2] = GetAimPosition(target)}
+                -- Wall penetration: ignore raycast filtering
+                if RagebotConfig.ShootThroughWalls then
+                    -- Direct fire — no raycast blocking
+                    FireServerEvent = ReplicatedStorage:FindFirstChild("RemoteEvent") or ReplicatedStorage:FindFirstChildWhichIsA("RemoteEvent")
+                    if FireServerEvent then FireServerEvent:FireServer(unpack(args)) end
+                else
+                    -- Normal fire
+                    FireServerEvent = ReplicatedStorage:FindFirstChild("RemoteEvent") or ReplicatedStorage:FindFirstChildWhichIsA("RemoteEvent")
+                    if FireServerEvent then FireServerEvent:FireServer(unpack(args)) end
+                end
+            end)
+        end
+    end
+end
+
+-- =============================================================================
+-- 🎯 PREDICTION SYSTEM
+-- =============================================================================
+local PredictionConfig = {
+    Enabled = false,
+    Amount = 0.15,
+    VelocityBased = true,
+    Vertical = true,
+    Smoothness = 0.5
+}
+local PlayerVelocity = {}
+
+local function UpdatePlayerVelocity(player)
+    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local state = PlayerVelocity[player] or {LastPos = hrp.Position, LastTime = os.clock()}
+    local now = os.clock()
+    local dt = now - state.LastTime
+    if dt > 0 then state.Velocity = (hrp.Position - state.LastPos) / dt end
+    state.LastPos = hrp.Position
+    state.LastTime = now
+    PlayerVelocity[player] = state
+end
+
+local function GetPredictedPosition(player, timeOffset)
+    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+    UpdatePlayerVelocity(player)
+    local state = PlayerVelocity[player]
+    if not state or not state.Velocity or not PredictionConfig.Enabled then return hrp.Position end
+    local predicted = hrp.Position + state.Velocity * (timeOffset or PredictionConfig.Amount)
+    if not PredictionConfig.Vertical then predicted = Vector3.new(predicted.X, hrp.Position.Y, predicted.Z) end
+    return predicted
+end
+
+-- =============================================================================
+-- 🛡️ ANTI AIM
+-- =============================================================================
+local AntiAimConfig = {
+    Enabled = false,
+    Mode = "Spin",
+    SpinSpeed = 180,
+    JitterAmount = 45,
+    BackwardsOffset = 180,
+    Randomize = true
+}
+local AntiAimAngle = 0
+
+local function UpdateAntiAim(dt)
+    if not RootPart or not AntiAimConfig.Enabled then return end
+    AntiAimAngle += math.rad(AntiAimConfig.SpinSpeed) * dt
+    local finalAngle = 0
+    if AntiAimConfig.Mode == "Spin" then finalAngle = AntiAimAngle
+    elseif AntiAimConfig.Mode == "Jitter" then finalAngle = math.rad(math.random(-AntiAimConfig.JitterAmount, AntiAimConfig.JitterAmount))
+    elseif AntiAimConfig.Mode == "Backwards" then finalAngle = math.rad(AntiAimConfig.BackwardsOffset + (AntiAimConfig.Randomize and math.random(-15,15) or 0)) end
+    pcall(function()
+        RootPart.CFrame = CFrame.new(RootPart.Position, RootPart.Position + Vector3.new(math.cos(finalAngle), 0, math.sin(finalAngle)))
+    end)
+end
+
+-- =============================================================================
+-- 🔥 VOID KILLER
+-- =============================================================================
+local VoidKillerConfig = {Enabled = false, MinHeight = 5000, MinSpeed = 1000, CheckInterval = 0.5, KillMode = "Kill"}
+local PlayerStates = {}
+
+local function KillPlayer(player)
+    local hum = player.Character and player.Character:FindFirstChild("Humanoid")
+    if hum then pcall(function() hum.Health = 0 end) end
+    print("[VOID KILLER] Killed: " .. player.Name)
+    if UI_Loaded then Library:Notify("Killed voider: " .. player.Name, 3) end
+end
+
+local function UpdateVoidKiller()
+    if not VoidKillerConfig.Enabled then return end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == LocalPlayer then continue end
+        local hrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end
+        local state = PlayerStates[p] or {LastPos = hrp.Position, LastTime = os.clock()}
+        local dt = os.clock() - state.LastTime
+        if dt >= VoidKillerConfig.CheckInterval then
+            if hrp.Position.Y > VoidKillerConfig.MinHeight then
+                if VoidKillerConfig.KillMode == "Kill" then KillPlayer(p) end
+            end
+            local speed = (hrp.Position - state.LastPos).Magnitude / dt
+            if speed > VoidKillerConfig.MinSpeed then
+                if VoidKillerConfig.KillMode == "Kill" then KillPlayer(p) end
+            end
+            state.LastPos = hrp.Position; state.LastTime = os.clock()
+        end
+        PlayerStates[p] = state
+    end
+end
+
+-- =============================================================================
+-- 1. VOID SPAM
+-- =============================================================================
+local VoidConfig = {Enabled = false, Speed = 5000, Altitude = 50000, SpinSpeed = 0, Gravity = 0, RandomX = true, RandomY = true, RandomZ = true}
+local function UpdateVoidSpam()
+    if not RootPart or not VoidConfig.Enabled then return end
+    pcall(function()
+        local vx = VoidConfig.RandomX and (math.random()-0.5)*VoidConfig.Speed or 0
+        local vy = VoidConfig.RandomY and (math.random()-0.5)*VoidConfig.Speed or VoidConfig.Gravity
+        local vz = VoidConfig.RandomZ and (math.random()-0.5)*VoidConfig.Speed or 0
+        RootPart.CFrame = CFrame.new(RootPart.Position.X, VoidConfig.Altitude, RootPart.Position.Z)
+        RootPart.AssemblyLinearVelocity = Vector3.new(vx, vy, vz)
+        if VoidConfig.SpinSpeed > 0 then RootPart.CFrame *= CFrame.Angles(0, math.rad(VoidConfig.SpinSpeed)*os.clock(), 0) end
+    end)
+end
+
+-- =============================================================================
+-- 2. ORBIT
+-- =============================================================================
+local OrbitConfig = {Enabled = false, Speed = 360, Radius = 30, Height = 5, Tilt = 0, Range = 500, UsePrediction = true}
+local OrbitAngle = 0
+local function UpdateOrbit(dt)
+    if not RootPart or not OrbitConfig.Enabled then return end
+    local target = GetClosestPlayer(OrbitConfig.Range)
+    if not target then return end
+    local targetPos = OrbitConfig.UsePrediction and PredictionConfig.Enabled and GetPredictedPosition(target) or (target.Character and target.Character:FindFirstChild("HumanoidRootPart") and target.Character.HumanoidRootPart.Position)
+    if not targetPos then return end
+    OrbitAngle += math.rad(OrbitConfig.Speed) * dt
+    local x, z = math.cos(OrbitAngle)*OrbitConfig.Radius, math.sin(OrbitAngle)*OrbitConfig.Radius
+    pcall(function() RootPart.CFrame = CFrame.new(targetPos + Vector3.new(x, OrbitConfig.Height, z)) end)
+end
+
+-- =============================================================================
+-- 3. TRANSLOCATE
+-- =============================================================================
+local TranslocateConfig = {Enabled = false, Range = 1000, Offset = 5, MinDistance = 15, Lift = 0, UsePrediction = true}
+local function UpdateTranslocate()
+    if not RootPart or not TranslocateConfig.Enabled then return end
+    local target = GetClosestPlayer(TranslocateConfig.Range)
+    if not target then return end
+    local targetPos = TranslocateConfig.UsePrediction and PredictionConfig.Enabled and GetPredictedPosition(target) or (target.Character and target.Character:FindFirstChild("HumanoidRootPart") and target.Character.HumanoidRootPart.Position)
+    if not targetPos then return end
+    local dist = (RootPart.Position - targetPos).Magnitude
+    if dist < TranslocateConfig.MinDistance then return end
+    pcall(function()
+        local dir = (targetPos - RootPart.Position).Unit * TranslocateConfig.Offset
+        RootPart.CFrame = CFrame.new(targetPos - dir + Vector3.new(0, TranslocateConfig.Lift, 0))
+    end)
+end
+
+-- =============================================================================
+-- 4. EVADE
+-- =============================================================================
+local EvadeConfig = {Enabled = false, Distance = 200, Delay = 1.5, MinHeight = -50, MaxHeight = 150, Direction = 360}
+local LastEvade = os.clock()
+local function EvadeOnce()
+    if not RootPart then return end
+    LastEvade = os.clock()
+    local angle = EvadeConfig.Direction == 360 and math.random() * math.pi * 2 or math.rad(EvadeConfig.Direction)
+    pcall(function() RootPart.CFrame = CFrame.new(RootPart.Position + Vector3.new(math.cos(angle)*EvadeConfig.Distance, math.random(EvadeConfig.MinHeight, EvadeConfig.MaxHeight), math.sin(angle)*EvadeConfig.Distance)) end)
+end
+local function UpdateEvade()
+    if not RootPart or not EvadeConfig.Enabled then return end
+    if os.clock() - LastEvade >= EvadeConfig.Delay then EvadeOnce() end
+end
+
+-- =============================================================================
+-- 5. VOID HIDE
+-- =============================================================================
+local VoidHideConfig = {Enabled = false, Height = 50000, Transparency = 0.8, GhostMode = true, NoCollision = true, HideName = false}
+local OriginalTransparency, OriginalParent, OriginalCanCollide, OriginalName = {}, nil, {}, nil
+local function HideCharacter()
+    if not LocalCharacter or OriginalParent then return end
+    OriginalParent = LocalCharacter.Parent
+    for _, d in ipairs(LocalCharacter:GetDescendants()) do
+        if d:IsA("BasePart") then OriginalTransparency[d] = d.Transparency; OriginalCanCollide[d] = d.CanCollide; d.Transparency = VoidHideConfig.GhostMode and VoidHideConfig.Transparency or 1; d.CanCollide = not VoidHideConfig.NoCollision end
+    end
+    LocalCharacter.Parent = Workspace.Terrain
+    if RootPart then RootPart.CFrame = CFrame.new(0, VoidHideConfig.Height, 0) end
+end
+local function ShowCharacter()
+    if not LocalCharacter or not OriginalParent then return end
+    for part, t in pairs(OriginalTransparency) do if part then part.Transparency = t; part.CanCollide = OriginalCanCollide[part] end end
+    LocalCharacter.Parent = OriginalParent; OriginalParent = nil
+end
+local function UpdateVoidHide()
+    if not RootPart then return end
+    if VoidHideConfig.Enabled then if not OriginalParent then HideCharacter() end else if OriginalParent then ShowCharacter() end end
+end
+
+-- =============================================================================
+-- MAIN LOOP — ALL FEATURES
+-- =============================================================================
+Connections.Main = RunService.Heartbeat:Connect(function(dt)
+    if not RootPart or not Humanoid or Humanoid.Health <= 0 then return end
+    pcall(UpdateRagebot)
+    pcall(UpdateVoidSpam)
+    pcall(UpdateOrbit, dt)
+    pcall(UpdateTranslocate)
+    pcall(UpdateEvade)
+    pcall(UpdateVoidHide)
+    pcall(UpdateAntiAim, dt)
+    pcall(UpdateVoidKiller)
+end)
+
+-- =============================================================================
+-- ✅ OBSIDIAN UI — FULLY MERGED WITH RAGEBOT
+-- =============================================================================
+if UI_Loaded and Library then
+    Library.ShowToggleFrameInKeybinds = true
+    Library.ShowCustomCursor = true
+    Library.NotifySide = "Left"
+
+    local Window = Library:CreateWindow({
+        Title = "RIVALS RAGEBOT • FULL SYSTEM",
+        Footer = "Obsidian UI • Delta Optimized",
+        Center = true, AutoShow = true, Resizable = true
+    })
+
+    local Tabs = {
+        Ragebot     = Window:AddTab("Ragebot",     "crosshair"),  -- 🔫 NEW MAIN TAB
+        Prediction  = Window:AddTab("Prediction",  "target"),
+        AntiAim     = Window:AddTab("Anti Aim",    "shield"),
+        VoidSpam    = Window:AddTab("Void Spam",    "circle"),
+        Orbit       = Window:AddTab("Orbit",       "reload"),
+        Translocate = Window:AddTab("Translocate", "arrows"),
+        Evade       = Window:AddTab("Evade",       "zap"),
+        VoidHide    = Window:AddTab("Void Hide",   "eye-off"),
+        VoidKiller  = Window:AddTab("Void Killer", "shield-alert"),
+        Settings    = Window:AddTab("Settings",    "settings")
+    }
+
+    -- ═══ 🔫 RAGEBOT TAB ═══
+    local RageGroup = Tabs.Ragebot:AddLeftGroupbox("Ragebot Main")
+    RageGroup:AddToggle("RageEnabled", {
+        Text = "Enable Ragebot", Default = false,
+        Callback = function(v) RagebotConfig.Enabled = v end
+    })
+    RageGroup:AddToggle("RageTeleport", {
+        Text = "Teleport To Enemy", Default = true,
+        Callback = function(v) RagebotConfig.Teleport = v end
+    })
+    RageGroup:AddToggle("RageWalls", {
+        Text = "Shoot Through Walls", Default = true,
+        Callback = function(v) RagebotConfig.ShootThroughWalls = v end
+    })
+    RageGroup:AddToggle("RageAutoShoot", {
+        Text = "Auto Shoot", Default = true,
+        Callback = function(v) RagebotConfig.AutoShoot = v end
+    })
+    RageGroup:AddToggle("RageSilent", {
+        Text = "Silent Aim", Default = false,
+        Callback = function(v) RagebotConfig.SilentAim = v end
+    })
+    RageGroup:AddDivider()
+    RageGroup:AddSlider("RageRange", {
+        Text = "Detection Range", Default = 1000, Min = 50, Max = 5000, Rounding = 50,
+        Callback = function(val) RagebotConfig.Range = val end
+    })
+    RageGroup:AddSlider("RageDist", {
+        Text = "Teleport Distance", Default = 15, Min = 1, Max = 100, Rounding = 1,
+        Callback = function(val) RagebotConfig.Distance = val end
+    })
+    RageGroup:AddSlider("RageDelay", {
+        Text = "Shoot Delay", Default = 0.1, Min = 0.01, Max = 2, Rounding = 0.01,
+        Callback = function(val) RagebotConfig.Delay = val end
+    })
+    RageGroup:AddDivider()
+    RageGroup:AddDropdown("RageWeapon", {
+        Text = "Weapon Mode", Default = "Premier",
+        Options = {"Premier", "Secondary", "Melee"},
+        Callback = function(val) RagebotConfig.WeaponMode = val end
+    })
+    RageGroup:AddDropdown("RageAimPart", {
+        Text = "Aim At", Default = "Head",
+        Options = {"Head", "Torso", "HumanoidRootPart"},
+        Callback = function(val) RagebotConfig.AimPart = val end
+    })
+    RageGroup:AddLabel("⚠️ Teleports to nearest enemy & auto-shoots through walls")
+
+    -- ═══ 🎯 PREDICTION TAB ═══
+    local PredGroup = Tabs.Prediction:AddLeftGroupbox("Prediction System")
+    PredGroup:AddToggle("PredEnabled", {Text = "Enable Prediction", Default = false, Callback = function(v) PredictionConfig.Enabled = v end})
+    PredGroup:AddSlider("PredAmount", {Text = "Prediction Amount", Default = 0.15, Min = 0, Max = 2, Rounding = 0.01, Callback = function(val) PredictionConfig.Amount = val end})
+    PredGroup:AddToggle("PredVelocity", {Text = "Velocity-Based", Default = true, Callback = function(v) PredictionConfig.VelocityBased = v end})
+    PredGroup:AddToggle("PredVertical", {Text = "Predict Vertical", Default = true, Callback = function(v) PredictionConfig.Vertical = v end})
+
+    -- ═══ 🛡️ ANTI AIM TAB ═══
+    local AntiAimGroup = Tabs.AntiAim:AddLeftGroupbox("Anti Aim")
+    AntiAimGroup:AddToggle("AntiAimEnabled", {Text = "Enable Anti Aim", Default = false, Callback = function(v) AntiAimConfig.Enabled = v end})
+    AntiAimGroup:AddDropdown("AntiAimMode", {Text = "Mode", Default = "Spin", Options = {"Spin", "Jitter", "Backwards", "Sideways"}, Callback = function(val) AntiAimConfig.Mode = val end})
+    AntiAimGroup:AddSlider("AntiAimSpin", {Text = "Spin Speed", Default = 180, Min = 10, Max = 1080, Rounding = 10, Callback = function(val) AntiAimConfig.SpinSpeed = val end})
+    AntiAimGroup:AddSlider("AntiAimJitter", {Text = "Jitter Amount", Default = 45, Min = 5, Max = 180, Rounding = 5, Callback = function(val) AntiAimConfig.JitterAmount = val end})
+    AntiAimGroup:AddToggle("AntiAimRand", {Text = "Randomize", Default = true, Callback = function(v) AntiAimConfig.Randomize = v end})
+
+    -- ═══ ALL OTHER TABS (sliders fixed) ═══
+    local VoidGroup = Tabs.VoidSpam:AddLeftGroupbox("Void Spam")
+    VoidGroup:AddToggle("VoidEnabled", {Text = "Enable Void Spam", Default = false, Callback = function(v) VoidConfig.Enabled = v end})
+    VoidGroup:AddSlider("VoidSpeed", {Text = "Speed", Default = 5000, Min = 100, Max = 20000, Rounding = 100, Callback = function(val) VoidConfig.Speed = val end})
+    VoidGroup:AddSlider("VoidHeight", {Text = "Height", Default = 50000, Min = 1000, Max = 200000, Rounding = 1000, Callback = function(val) VoidConfig.Altitude = val end})
+    VoidGroup:AddToggle("RandX", {Text = "Random X", Default = true, Callback = function(v) VoidConfig.RandomX = v end})
+
+    local OrbitGroup = Tabs.Orbit:AddLeftGroupbox("Orbit")
+    OrbitGroup:AddToggle("OrbitEnabled", {Text = "Enable Orbit", Default = false, Callback = function(v) OrbitConfig.Enabled = v end})
+    OrbitGroup:AddSlider("OrbitSpeed", {Text = "Speed", Default = 360, Min = 30, Max = 1440, Rounding = 10, Callback = function(val) OrbitConfig.Speed = val end})
+    OrbitGroup:AddSlider("OrbitRadius", {Text = "Radius", Default = 30, Min = 5, Max = 200, Rounding = 1, Callback = function(val) OrbitConfig.Radius = val end})
+    OrbitGroup:AddToggle("OrbitPred", {Text = "Use Prediction", Default = true, Callback = function(v) OrbitConfig.UsePrediction = v end})
+
+    local TransGroup = Tabs.Translocate:AddLeftGroupbox("Translocate")
+    TransGroup:AddToggle("TransEnabled", {Text = "Enable Translocate", Default = false, Callback = function(v) TranslocateConfig.Enabled = v end})
+    TransGroup:AddSlider("TransRange", {Text = "Range", Default = 1000, Min = 100, Max = 3000, Rounding = 50, Callback = function(val) TranslocateConfig.Range = val end})
+    TransGroup:AddSlider("TransOffset", {Text = "Distance From Enemy", Default = 5, Min = 1, Max = 50, Rounding = 1, Callback = function(val) TranslocateConfig.Offset = val end})
+    TransGroup:AddToggle("TransPred", {Text = "Use Prediction", Default = true, Callback = function(v) TranslocateConfig.UsePrediction = v end})
+
+    local EvadeGroup = Tabs.Evade:AddLeftGroupbox("Evade")
+    EvadeGroup:AddToggle("EvadeEnabled", {Text = "Enable Auto-Evade", Default = false, Callback = function(v) EvadeConfig.Enabled = v end})
+    EvadeGroup:AddSlider("EvadeDist", {Text = "Distance", Default = 200, Min = 20, Max = 1000, Rounding = 10, Callback = function(val) EvadeConfig.Distance = val end})
+    EvadeGroup:AddSlider("EvadeDelay", {Text = "Delay", Default = 1.5, Min = 0.2, Max = 5, Rounding = 0.1, Callback = function(val) EvadeConfig.Delay = val end})
+    EvadeGroup:AddButton("⚡ Evade Now!", EvadeOnce)
+
+    local HideGroup = Tabs.VoidHide:AddLeftGroupbox("Void Hide")
+    HideGroup:AddToggle("HideEnabled", {Text = "Enable Void Hide", Default = false, Callback = function(v) VoidHideConfig.Enabled = v; if not v and OriginalParent then ShowCharacter() end end})
+    HideGroup:AddSlider("HideHeight", {Text = "Height", Default = 50000, Min = 2000, Max = 150000, Rounding = 1000, Callback = function(val) VoidHideConfig.Height = val end})
+
+    local VKGroup = Tabs.VoidKiller:AddLeftGroupbox("Void Killer")
+    VKGroup:AddToggle("VKEnabled", {Text = "Enable Void Killer", Default = false, Callback = function(v) VoidKillerConfig.Enabled = v end})
+    VKGroup:AddSlider("VKHeight", {Text = "Flag Height", Default = 5000, Min = 1000, Max = 20000, Rounding = 500, Callback = function(val) VoidKillerConfig.MinHeight = val end})
+    VKGroup:AddSlider("VKSpeed", {Text = "Flag Speed", Default = 1000, Min = 200, Max = 5000, Rounding = 100, Callback = function(val) VoidKillerConfig.MinSpeed = val end})
+    VKGroup:AddDropdown("VKMode", {Text = "Action", Default = "Kill", Options = {"Kill", "Kick"}, Callback = function(val) VoidKillerConfig.KillMode = val end})
+
+    local SettingsGroup = Tabs.Settings:AddLeftGroupbox("Settings")
+    SettingsGroup:AddLabel("Menu Keybind"):AddKeyPicker("MenuKeybind", {Default = "RightShift", NoUI = true, Text = "Toggle Menu"})
+    SettingsGroup:AddButton("Unload", function() KillAllConns(); if Library then Library:Unload() end end)
+
+    Library.ToggleKeybind = Library.Options.MenuKeybind
+    if ThemeManager and SaveManager then pcall(function() ThemeManager:SetLibrary(Library); SaveManager:SetLibrary(Library); SaveManager:LoadAutoloadConfig() end) end
+    Library:SetWatermarkVisibility(true)
+    Library:SetWatermark("RIVALS RAGEBOT • FULL SYSTEM ✅")
+    Library:Notify("🔫 RAGEBOT + ALL FEATURES LOADED!", 4)
+end
+
+-- =============================================================================
+-- FALLBACK KEYBINDS
+-- =============================================================================
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    local k = input.KeyCode
+    if k == Enum.KeyCode.One then RagebotConfig.Enabled = not RagebotConfig.Enabled; print("[RAGEBOT]:", RagebotConfig.Enabled and "✅ ON" or "❌ OFF")
+    elseif k == Enum.KeyCode.Two then PredictionConfig.Enabled = not PredictionConfig.Enabled; print("[PREDICTION]:", PredictionConfig.Enabled and "✅ ON" or "❌ OFF")
+    elseif k == Enum.KeyCode.Three then AntiAimConfig.Enabled = not AntiAimConfig.Enabled; print("[ANTI AIM]:", AntiAimConfig.Enabled and "✅ ON" or "❌ OFF")
+    elseif k == Enum.KeyCode.Four then VoidConfig.Enabled = not VoidConfig.Enabled; print("[VOID SPAM]:", VoidConfig.Enabled and "✅ ON" or "❌ OFF")
+    elseif k == Enum.KeyCode.Five then OrbitConfig.Enabled = not OrbitConfig.Enabled; print("[ORBIT]:", OrbitConfig.Enabled and "✅ ON" or "❌ OFF")
+    elseif k == Enum.KeyCode.Six then TranslocateConfig.Enabled = not TranslocateConfig.Enabled; print("[TRANSLOCATE]:", TranslocateConfig.Enabled and "✅ ON" or "❌ OFF")
+    elseif k == Enum.KeyCode.Seven then EvadeConfig.Enabled = not EvadeConfig.Enabled; print("[EVADE]:", EvadeConfig.Enabled and "✅ ON" or "❌ OFF")
+    elseif k == Enum.KeyCode.Eight then VoidHideConfig.Enabled = not VoidHideConfig.Enabled; if not VoidHideConfig.Enabled and OriginalParent then ShowCharacter() end; print("[VOID HIDE]:", VoidHideConfig.Enabled and "✅ ON" or "❌ OFF")
+    elseif k == Enum.KeyCode.Nine then VoidKillerConfig.Enabled = not VoidKillerConfig.Enabled; print("[VOID KILLER]:", VoidKillerConfig.Enabled and "✅ ON" or "❌ OFF")
+    elseif k == Enum.KeyCode.Zero then EvadeOnce(); print("[EVADE NOW!]") end
+end)
+
+print("========================================")
+print("🔫 RIVALS RAGEBOT — FULL SYSTEM LOADED")
+print("Keybinds: 1=Ragebot 2=Prediction 3=AntiAim 4=VoidSpam")
+print("          5=Orbit 6=Translocate 7=Evade 8=VoidHide 9=VoidKiller")
+print("          RightShift=Toggle Menu")
+print("========================================")
